@@ -12,6 +12,8 @@
 #include "memtracer.h"
 #include <stdlib.h>
 #include <vector>
+#include <iostream>
+#include <iomanip>
 
 // virtual memory configuration
 #define PGSHIFT 12
@@ -61,7 +63,7 @@ public:
 #ifdef RISCV_ENABLE_MISALIGNED
     reg_t res = 0;
     for (size_t i = 0; i < size; i++)
-      res += (reg_t)load_uint8(addr + i) << (i * 8);
+      res += (reg_t)load_uint8(addr + i, false) << (i * 8);
     return res;
 #else
     throw trap_load_address_misaligned(addr);
@@ -72,7 +74,7 @@ public:
   {
 #ifdef RISCV_ENABLE_MISALIGNED
     for (size_t i = 0; i < size; i++)
-      store_uint8(addr + i, data >> (i * 8));
+      store_uint8(addr + i, data >> (i * 8), false);
 #else
     throw trap_store_address_misaligned(addr);
 #endif
@@ -80,7 +82,8 @@ public:
 
   // template for functions that load an aligned value from memory
   #define load_func(type) \
-    inline type##_t load_##type(reg_t addr) { \
+    inline type##_t load_##type(reg_t addr, bool log_access = true) { \
+      if (log_access) log.push_back({addr, sizeof(type##_t), LOG_LOAD}); \
       if (unlikely(addr & (sizeof(type##_t)-1))) \
         return misaligned_load(addr, sizeof(type##_t)); \
       reg_t vpn = addr >> PGSHIFT; \
@@ -124,7 +127,8 @@ public:
 
   // template for functions that store an aligned value to memory
   #define store_func(type) \
-    void store_##type(reg_t addr, type##_t val) { \
+    void store_##type(reg_t addr, type##_t val, bool log_access = true) { \
+      if (log_access) log.push_back({addr, sizeof(type##_t), LOG_STORE}); \
       if (unlikely(addr & (sizeof(type##_t)-1))) \
         return misaligned_store(addr, val, sizeof(type##_t)); \
       reg_t vpn = addr >> PGSHIFT; \
@@ -294,6 +298,23 @@ public:
 #endif
   }
 
+  void print_mem_log()
+  {
+    if (proc->max_xlen == 32)
+      for(auto aitr = log.begin(); aitr != log.end(); ++aitr)
+        std::cout << (aitr->type == LOG_LOAD ? "L" : "S") 
+                  << "\t0x" << std::hex << std::setfill('0') << std::setw(8) << static_cast<int32_t>(aitr->addr) 
+                  << "\t0x" << std::hex << std::setfill('0') << std::setw(8) << static_cast<int32_t>(aitr->addr + aitr->size) 
+                  << std::endl; 
+    else
+      for(auto aitr = log.begin(); aitr != log.end(); ++aitr)
+        std::cout << (aitr->type == LOG_LOAD ? "L" : "S") 
+                  << "\t0x" << std::hex << std::setfill('0') << std::setw(16) << aitr->addr 
+                  << "\t0x" << std::hex << std::setfill('0') << std::setw(16) << aitr->addr + aitr->size 
+                  << std::endl; 
+ 
+  }
+
 private:
   simif_t* sim;
   processor_t* proc;
@@ -375,6 +396,14 @@ private:
   bool check_triggers_store;
   // The exception describing a matched trigger, or NULL.
   trigger_matched_t *matched_trigger;
+
+  enum log_access_t { LOG_LOAD, LOG_STORE };
+  struct log_entry_t {
+    reg_t addr;
+    reg_t size;
+    log_access_t type;
+  };
+  std::vector<log_entry_t> log;
 
   friend class processor_t;
 };

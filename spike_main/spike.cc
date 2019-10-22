@@ -279,6 +279,8 @@ int main(int argc, char** argv)
 
   auto return_code = s.run();
 
+  s.print_mem_log();
+
   for (auto& mem : mems)
     delete mem.second;
 

@@ -1013,3 +1013,5 @@ void processor_t::trigger_updated()
     }
   }
 }
+
+void processor_t::print_mem_log() { mmu->print_mem_log(); }
